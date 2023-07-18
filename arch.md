@@ -27,3 +27,13 @@ In some systems memory may not be very available, so we can use swapping to free
 
 ## HAL
 The hardware abstraction layer is made up of a few key points. First theres the paging abstraction, this prevents each and every coder from having to interact with the AS(Architecture specific) features about paging, such as page size, page entries, etc. Next is the interrupt abstraction, this covers up the AS interrupt systems, such as interrupt priority, whether or not MSIs are enabled, and actual transport methods on IO devices. Finally, the last abstraction point is the disk abstraction layer, this prevents coders from having to interact with the drivers for disks directly, as disk drivers are built into the kernel due to their importance in kernel operation.
+
+## Drivers
+Drivers are expected to most of the time be provided in user-space, but can be loaded in kernel-space. Examples of kernel-space drivers are file system drives, non-volatile storage drivers, as well as serial drivers.
+
+## ISA Support
+GeNT is intended as primarily a RISC-V OS, but support for other architectures, such as x64, or arm64 is planned eventually.  
+If you would like to implement support for another architecture in the kernel please ensure it has access to a bootloader that implements the limine protocol.
+
+## Protocol
+The operating system relies on implementation of the Limine boot protocol, and can be booted on an architecture as long as support is implemented in the kernel, as well as it supporting limine.
