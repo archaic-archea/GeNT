@@ -11,6 +11,14 @@ Arguments:
 * Trap number - A number identifying what type of trap occured, trap types are specified in the Trap Type section
 * Register frame - A copy of all the registers when the trap occurred
 
+# Trap info
+Trap information should be collected with ISA-independent functions, these will then call an ISA-dependent function based off what the code was compiled for.  
+Trap information functions should include the following:
+* Page fault access address
+* Invalid memory access address
+* Unaligned access address
+* Faulting instruction address
+
 # Trap Types
 A trap type can be first identified by the highest bit in the number, which indicates a external trap(value 1) or an internal trap(value 0)
 ## Internal Traps
