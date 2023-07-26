@@ -13,7 +13,7 @@ Arguments:
 
 # Trap Types
 A trap type can be first identified by the highest bit in the number, which indicates a external trap(value 1) or an internal trap(value 0)
-Internal traps:
+## Internal Traps
 * 0 - Unaligned instruction
 * 1 - Unaligned load
 * 2 - Unaligned store
@@ -31,7 +31,7 @@ Internal traps:
 
 * 33 - System call
 
-External traps:
+## External Traps
 * 0 - IPI
 * 1 - Timer
 * 2 - External device
