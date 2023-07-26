@@ -43,3 +43,23 @@ A trap type can be first identified by the highest bit in the number, which indi
 * 0 - IPI
 * 1 - Timer
 * 2 - External device
+
+# Handling Trap Types
+Traps may have ISA specific methods of handling a trap, which should be handled with an ISA-specific function called `{trap_type}_handler`, details can be found in `isa/{isa}/trap.md`  
+  
+## From user space
+* Unaligned access faults - Shutdown the user program
+* Invalid memory access fault - Shutdown the user program
+* Page fault - Check if its a fault on a swapped page, if so swap it back and continue, otherwise shutdown the user program
+* Unknown instruction fault - Shutdown the user program
+* System calls - Jump to the system call handler
+* Breakpoint - Pause execution of the program, it can be unpaused later by a debugger or other program by using the `clear_breakpoint` function in the RDL
+
+## From kernel space
+* Unaligned access faults - Enter lockdown mode and load debugging info (as specified in `lockdown.md`)
+* Invalid memory access fault - Enter lockdown mode and load debugging info (as specified in `lockdown.md`)
+* Page fault - Check if its a fault on a swapped page, if so swap it back and continue, otherwise enter lockdown mode and load debugging info (as specified in `lockdown.md`)
+* Unknown instruction fault - Enter lockdown mode and load debugging info (as specified in `lockdown.md`)
+* IPI - TODO
+* Timer - drop the current timer list entry, complete any associated actions, and advance the timer list
+* External device - Pass info to the device driver so it can handle it
