@@ -12,12 +12,16 @@ Arguments:
 * Register frame - A copy of all the registers when the trap occurred
 
 # Trap info
-Trap information should be collected with ISA-independent functions, these will then call an ISA-dependent function based off what the code was compiled for.  
+Trap information can be gathered through ISA-independent functions, as well as a structure containing information on the program that generated the trap.
+The afforementioned ISA-independent functions, when called, will call ISA-dependent functions based off what the code was compiled for.  
 Trap information functions should include the following:
 * Page fault access address
 * Invalid memory access address
 * Unaligned access address
 * Faulting instruction address
+The trap information structure should include:
+* Registers of the faulting program
+* The program's page table
 
 # Trap Types
 A trap type can be first identified by the highest bit in the number, which indicates a external trap(value 1) or an internal trap(value 0)

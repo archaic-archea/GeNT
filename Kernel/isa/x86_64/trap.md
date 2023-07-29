@@ -1,2 +1,2 @@
 # Trap
-TODO
+When entering traps in an x86-64 system, its expected that a handler will switch to a kernel page-table that has full access to the kernel. This page table should be globally accessible, and if the user-program requires that a user-space address be read, then a pointer to the actual program table should be available to the system in the trap-info structure.

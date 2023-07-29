@@ -1,0 +1,4 @@
+# Virtual Memory
+Virtual memory in GeNT is managed on a process-by-process basis, and all of them are handled the same.  When a process is started it is expected to have a stack range, a heap range, and the rest of memory can be allocated for more stack, more heap, shared memory, or for libraries. This also applies to the kernel.  
+Once the scheduler is initialized, drivers will be loaded, and if they request a thread, they can be provided one by the scheduler, this means that the driver operates as a kernel level thread, the kernel is treated as a process.  
+All virtual memory is managed using an implementation of Vmem, as it is good with multi-core system.
