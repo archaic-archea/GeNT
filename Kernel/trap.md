@@ -7,6 +7,7 @@ The trap shim function handles ISA specific trap entry and should always call th
 All ISA specific trap entry details can be found under `isa/{isa}/trap.md`
 
 ## Trap-main Function
+Must use the C ABI for a given system, if the C ABI is undefined for a given system, please see `isa/{isa}/abi.md`.
 Arguments:
 * Trap number - A number identifying what type of trap occured, trap types are specified in the Trap Type section
 * Register frame - A copy of all the registers when the trap occurred
