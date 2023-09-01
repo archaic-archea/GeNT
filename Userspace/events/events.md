@@ -11,8 +11,9 @@ Events are listed in the `Event Port List` section
 ## Event Ports List
 0x00 => IPC init port, see `Userspace/IPC/Ports.md` for more info
 0x01 => Fault event port, see the `Faults` section in this document
-0x02 => OS Com port, see `Userspace/IPC/
-0x03..0xFFFFFFFF => Proccess Com ports
+0x02 => OS Com port, see `Userspace/IPC/OS.md` for more information
+0x03 => Init Com port, see `Userspace/io.md` for more information
+0x04..0xFFFFFFFF => Proccess Com ports
 
 ## Faults
 When a program faults and the OS cant handle it, it passes it to the program as a last ditch effort to fix whatever issue has occured.
