@@ -1,7 +1,7 @@
 use core::mem::transmute;
 
 bitfield::bitfield! {
-    #[derive(Clone, Copy)]
+    #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
     pub struct VirtualAddress(u64);
 
     pub page_offset, set_page_offset: 11, 0;

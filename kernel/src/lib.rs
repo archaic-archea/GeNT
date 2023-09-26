@@ -1,9 +1,16 @@
 #![no_std]
-#![deny(warnings)]
 #![feature(
     int_roundings,
     new_uninit,
-    strict_provenance
+    strict_provenance,
+    alloc_error_handler,
+    naked_functions,
+    fn_align,
+    thread_local,
+    asm_const,
+    stdsimd,
+    riscv_ext_intrinsics,
+    pointer_byte_offsets
 )]
 
 extern crate alloc;
@@ -14,7 +21,12 @@ pub mod mem;
 pub mod uart;
 pub mod dma; 
 pub mod dev;
+mod scheduler;
+pub mod acpi;
+mod utils;
 
+static KERN_FILE: limine::KernelFileRequest = limine::KernelFileRequest::new();
+pub static RSDP: limine::RsdpRequest = limine::RsdpRequest::new();
 static HHDM: limine::HhdmRequest = limine::HhdmRequest::new();
 pub static MODE: limine::PagingModeRequest = limine::PagingModeRequest::new(
     limine::PagingMode::Sv57, 

@@ -1,49 +1,99 @@
 #![no_main]
 #![no_std]
-#![deny(warnings)]
 #![feature(
     naked_functions,
     int_roundings,
     strict_provenance,
-    pointer_byte_offsets
+    pointer_byte_offsets,
+    fn_align
 )]
 
 extern crate alloc;
 
-use alloc::boxed::Box;
-use gent_kern::println;
+use alloc::format;
+use gent_kern::{println, print};
+use gent_kern::acpi;
 
-static RSDP: limine::RsdpRequest = limine::RsdpRequest::new();
 static MMAP: limine::MemoryMapRequest = limine::MemoryMapRequest::new();
 
-#[link_section = ".initext"]
+#[no_mangle]
 extern "C" fn kinit() -> ! {
     log::set_logger(&gent_kern::uart::Logger).unwrap();
     log::set_max_level(log::LevelFilter::Info);
+
     println!("Starting kernel");
     println!("Mode: {:?}", gent_kern::MODE.response().unwrap().mode());
     unsafe {
         vmem::bootstrap()
     }
+
+    println!("vmem bootstrapped");
+
     let memory_map = MMAP.response().expect("Failed to get map");
     for entry in memory_map.usable_entries() {
         gent_kern::mem::PHYS.add(entry.base, entry.size).expect("Failed to add entry");
     }
 
-    gent_kern::allocator::init();
-    println!("Memory initialized");
+    println!("Memory map fetched");
+
     gent_kern::find_upperhalf_mem();
     println!("Upperhalf found");
 
-    let xsdt = unsafe {
-        acpi::AcpiTables::from_rsdp(
-            Handler, 
-            RSDP.response().unwrap().rsdp_addr as usize - gent_kern::mem::HHDM_OFFSET.load(core::sync::atomic::Ordering::Relaxed)
-        )
-    }.unwrap();
-    println!("XSDT found");
+    gent_kern::mem::tls::init_tls();
+    gent_kern::arch::trap::init_traps();
+    println!("Traps initialized");
 
-    let aml_handler: Box<dyn aml::Handler> = Box::new(gent_kern::arch::transit::Transit);
+    gent_kern::allocator::init();
+    println!("Memory initialized");
+
+    gent_kern::dev::blockdev::init();
+
+    let host = alloc::sync::Arc::new(gent_kern::acpi::Host);
+
+    lai::init(host);
+    lai::create_namespace();
+
+    println!("Made LAI namespace");
+
+    print_nodes(0, lai::get_root());
+
+    let rsdp = unsafe {&*{gent_kern::RSDP.response().unwrap().rsdp_addr as *mut acpi::tables::Rsdp}};
+    let rsdt = rsdp.rsdt();
+
+    for node in rsdt.into_iter() {
+        println!("Found node {:#?}", node.name());
+    }
+    
+    let madt = unsafe {&*(rsdt.get_table("APIC") as *const acpi::tables::madt::Madt)};
+
+    let intcontroller = acpi::tables::madt::RiscvIntController::from_entry(
+        madt.entry(0).unwrap()
+    ).unwrap();
+
+    //let mut fw_cfg = lai::resolve_path(None, "\\_SB_.FWCF._CRS").unwrap();
+    //let fw_cfg = fw_cfg.eval().unwrap();
+    //println!("Evaluated FW_CFG node");
+    //let buf = fw_cfg.get_buffer().unwrap();
+    //println!("FW_CFG addr: {:?} len {}", buf.as_ptr(), buf.len());
+
+    /*for i in 0..8 {
+        let mut virtio = lai::resolve_path(None, &format!("\\_SB_.VR0{}._CRS", i)).unwrap();
+        let mmio = virtio.eval().unwrap();
+        let mmio = mmio.get_buffer().unwrap();
+    
+        assert!(mmio[0] == 0b10000110);
+        assert!(mmio[1] == 0x09);
+        assert!(mmio[2] == 0x00);
+    
+        let base: *mut gent_kern::dev::virtio::VirtIoHeader = gent_kern::mem::PhysicalAddress::new(
+            u32::from_le_bytes([mmio[4], mmio[5], mmio[6], mmio[7]]) as usize
+        ).to_virt().to_mut_ptr();
+    
+        let virtio = unsafe {gent_kern::dev::virtio::VirtIoHeader::from_mut_ptr(base).unwrap()};
+        println!("Found device {:?}", virtio.dev_id());
+    }*/
+
+    /*let aml_handler: Box<dyn aml::Handler> = Box::new(gent_kern::arch::transit::Transit);
 
     let mut context = aml::AmlContext::new(
         aml_handler, 
@@ -52,7 +102,7 @@ extern "C" fn kinit() -> ! {
     println!("Made AML context");
 
     unsafe {
-        let dsdt = xsdt.dsdt.unwrap();
+        let dsdt = xsdt.dsdt().unwrap();
         context.parse_table(
             &*core::ptr::slice_from_raw_parts(
                 dsdt.address as *const u8, 
@@ -60,7 +110,7 @@ extern "C" fn kinit() -> ! {
             )
         ).unwrap();
 
-        for ssdt in xsdt.ssdts.iter() {
+        for ssdt in xsdt.ssdts() {
             context.parse_table(
                 &*core::ptr::slice_from_raw_parts(
                     ssdt.address as *const u8, 
@@ -123,147 +173,78 @@ extern "C" fn kinit() -> ! {
             }
         },
         _ => unreachable!()
+    }*/
+
+    /*let phys = gent_kern::mem::PHYS.alloc(4096, vmem::AllocStrategy::NextFit).unwrap();
+    let virt = gent_kern::mem::VIRT.alloc(4096, vmem::AllocStrategy::NextFit).unwrap();
+
+    println!("Allocated swappable RAM at virt 0x{:x} phys 0x{:x}", virt, phys);
+
+    let mut root = gent_kern::arch::paging::get_root_table();
+    unsafe {
+        root.map(
+            gent_kern::mem::VirtualAddress::new(virt), 
+            gent_kern::mem::PhysicalAddress::new(phys), 
+            gent_kern::arch::paging::PagePermissions {
+                read: true,
+                write: true,
+                execute: false,
+                user: false,
+                global: false,
+                dealloc: true,
+            }, 
+            gent_kern::arch::paging::PageSize::Kilopage
+        ).unwrap();
+
+        *(virt as *mut u8) = 243;
+
+        root.get_entry(
+            gent_kern::mem::VirtualAddress::new(virt)
+        ).set_perms(gent_kern::arch::paging::PagePermissions {
+            read: true,
+            write: false,
+            execute: false,
+            user: false,
+            global: false,
+            dealloc: true,
+        });
     }
+
+    println!("Swapping out 0x{:x}", virt);
+
+    root.swap(
+        gent_kern::mem::VirtualAddress::new(virt), 
+        0
+    ).unwrap();
+
+    unsafe {
+       println!("{}", *(virt as *mut u8));
+       println!("Writing (should generate a `Store Page Fault`)");
+       (virt as *mut u8).write_volatile(0);
+       println!("{}", *(virt as *mut u8));
+    }*/
 
     panic!("Kernel end");
-}
-
-#[derive(Clone, Copy)]
-struct Handler;
-
-impl acpi::AcpiHandler for Handler {
-    unsafe fn map_physical_region<T>(&self, physical_address: usize, size: usize) -> acpi::PhysicalMapping<Self, T> {
-        use gent_kern::arch::paging;
-        
-        // Mask out the bottom bits, they shouldnt be needed in the address
-        let physical_address = physical_address & 0xFFFFFFFFFFFFF000;
-        // Add the bottom bits from the physical address for edge cases
-        // E.g.: size 0x1000, which would require 2 pages normally with address 0x1001, but if we remove the bottom bits, its only 1 page
-        let size = size + (physical_address & 0xFFF);
-
-        let mut root = paging::get_root_table();
-
-        let mapped_len = size.div_ceil(0x1000) * 0x1000;
-
-        let vaddr = gent_kern::mem::VIRT.alloc(mapped_len, vmem::AllocStrategy::NextFit).unwrap();
-
-        for addr_offset in (0..size).step_by(4096) {
-            let vaddr = gent_kern::mem::VirtualAddress::new(vaddr + addr_offset);
-            let paddr = gent_kern::mem::PhysicalAddress::new(physical_address + addr_offset);
-
-            let size = 0x1000;
-
-            root.map(
-                vaddr, 
-                paddr, 
-                paging::PagePermissions {
-                    read: true,
-                    write: true,
-                    execute: false,
-                    user: false,
-                    global: false,
-                    dealloc: false
-                }, 
-                paging::PageSize::from_size(size)
-            ).unwrap_or_else(|err| {
-                match err {
-                    paging::PageError::InvalidSize => {
-                        panic!("Failed to map due to invalid size");
-                    },
-                    paging::PageError::MappingExists(entry) => {
-                        println!(
-                            "Failed to map due to existing mapping: {:#x?}\nAttempted mapping: v0x{:x} to p0x{:x}\nOriginal address: p0x{:x}", 
-                            err, 
-                            vaddr.addr(), 
-                            paddr.addr(),
-                            entry.phys().addr()
-                        );
-                    },
-                    _ => {
-                        panic!("{:#?}", err)
-                    }
-                }
-            });
-        }
-
-        acpi::PhysicalMapping::new(
-            physical_address, 
-            core::ptr::NonNull::new(vaddr as *mut T).unwrap(), 
-            size, 
-            mapped_len, 
-            *self
-        )
-    }
-
-    fn unmap_physical_region<T>(region: &acpi::PhysicalMapping<Self, T>) {
-        unsafe {
-            use gent_kern::arch::paging;
-            let virtual_address = region.virtual_start().addr().get();
-
-            let mut root = paging::get_root_table();
-
-            for addr_offset in (0..region.mapped_length()).step_by(4096) {
-                let vaddr = gent_kern::mem::VirtualAddress::new(virtual_address + addr_offset);
-
-                let size = 0x1000;
-
-                root.unmap(
-                    vaddr, 
-                    paging::PageSize::from_size(size)
-                ).unwrap_or_else(|err| {
-                    match err {
-                        paging::PageError::NoMapping => {
-                            panic!("No mapping found");
-                        },
-                        paging::PageError::UnmappingSizeMismatch => {
-                            panic!("Sizes did not match");
-                        }
-                        _ => {
-                            panic!("{:#?}", err)
-                        }
-                    }
-                });
-            }
-
-            gent_kern::mem::VIRT.free(region.virtual_start().addr().get(), region.mapped_length());
-        }
-    }
-}
-
-#[naked]
-#[no_mangle]
-#[link_section = ".initext"]
-unsafe extern "C" fn _boot() -> ! {
-    core::arch::asm!("
-        csrw sie, zero
-        csrci sstatus, 2
-        
-        .option push
-        .option norelax
-        lla gp, __global_pointer
-        .option pop
-
-        lla sp, __stack_top
-        lla t0, stvec_trap_shim
-        csrw stvec, t0
-
-        2:
-            j {}
-    ", sym kinit, options(noreturn));
-}
-
-#[naked]
-#[no_mangle]
-unsafe extern "C" fn stvec_trap_shim() -> ! {
-    core::arch::asm!("
-        1:
-            wfi
-            j 1b
-    ", options(noreturn));
 }
 
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     println!("Panic: {:#?}", info);
-    loop {}
+    loop {
+        gent_kern::arch::utils::slow();
+    }
+}
+
+fn print_nodes(tabs: usize, node: lai::Node) {
+    print!("{}-└{} {:?}", "  ".repeat(tabs), node.name(), node.object().typ());
+
+    if node.object().typ() == lai::ObjectType::String {
+        println!(" {:#?}", node.object().get_str().unwrap());
+    } else {
+        println!()
+    }
+
+    for node in node.into_iter() {
+        print_nodes(tabs + 1, node);
+    }
 }

@@ -121,6 +121,7 @@ impl PageSize {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct PagePermissions {
     pub read: bool,
     pub write: bool,
@@ -250,6 +251,38 @@ impl RootTable {
         unreachable!()
     }
 
+    pub fn get_entry(&self, vaddr: crate::mem::VirtualAddress) -> &'static mut PageTableEntry {
+        // `self.1` contains the paging mode
+        // `self.0` contains a mutable pointer to the page tables, we cast it to constant for safety reasons
+        let mut cur_level = self.1.to_level();
+        let mut table = self.0;
+
+        loop {
+            unsafe {
+                // We get the current entry by dereferencing the table, and indexing it based on the virtual address' vpn for the current level
+                let entry = &mut (*table)[vaddr.vpn(cur_level)];
+                
+                // `entry.entry()` returns an `entry` type, which is an enum identifying an entry as a table, page, or invalid entry
+                match entry.entry() {
+                    Entry::Table(next_table) => {
+                        table = next_table.cast_mut();
+                    },
+                    _ => {
+                        return entry
+                    }
+                }
+
+                // If the current level is 0 before we decrement the level again, then we found a table entry way lower than we should have
+                // Will change if I encounter it
+                if cur_level == 0 {
+                    panic!("Uhhh :clueless:");
+                }
+
+                cur_level -= 1;
+            }
+        }
+    }
+
     /// Finds the lowest entry in that virtual address, returns page level, and entry
     pub fn read(&self, vaddr: crate::mem::VirtualAddress) -> (Entry, usize) {
         // `self.1` contains the paging mode
@@ -281,7 +314,83 @@ impl RootTable {
                 cur_level -= 1;
             }
         }
+    }
 
+    pub fn swap(
+        &mut self, 
+        vaddr: crate::mem::VirtualAddress,
+        procid: u128,
+    ) -> Result<(), PageError> {
+        let entry = self.read(vaddr);
+        let size = PageSize::from_level(entry.1);
+
+        let entry = self.get_entry(vaddr);
+        entry.set_valid(false);
+
+        if !entry.read() {
+            return Err(PageError::NoMapping);
+        } 
+
+        if entry.swapped() {
+            // Swap it back in
+
+            let mut lock = crate::mem::swap::SWAP_MAN.lock();
+            let disk_info = lock.remove(&(procid, vaddr)).unwrap();
+
+            let disk_id = disk_info.0;
+            let block = disk_info.1;
+
+            core::mem::drop(lock);
+
+            let lock = crate::dev::blockdev::DISKS.lock();
+            let disk = lock.get(&disk_id).unwrap();
+
+            let phys = crate::mem::PHYS.alloc(size as usize, vmem::AllocStrategy::NextFit).unwrap();
+
+            let buf = unsafe {core::slice::from_raw_parts_mut(
+                (phys + crate::mem::HHDM_OFFSET.load(core::sync::atomic::Ordering::Relaxed)) as *mut u8, 
+                size as usize
+            )};
+
+            disk.read(buf, block);
+
+            entry.set_swapped(false);
+            entry.set_ppn((phys >> 12) as u64);
+            entry.set_valid(true);
+
+            sfence();
+            Ok(())
+        } else {
+            // Swap it back out
+            
+            entry.set_swapped(true);
+
+            let mut swaplock = crate::mem::swap::SWAP_MAN.lock();
+
+            let mut lock = crate::dev::blockdev::DISKS.lock();
+            let disk = lock.get_mut(&0).unwrap();
+
+            let block_base = disk.alloc_blocks((size as usize).div_ceil(disk.blocksize()));
+
+            swaplock.insert((procid, vaddr), (0, block_base));
+            core::mem::drop(swaplock);
+
+            let buf = unsafe {core::slice::from_raw_parts(
+                entry.phys().to_virt().to_ptr(), 
+                size as usize
+            )};
+
+            disk.write(buf, block_base);
+
+            sfence();
+            Ok(())
+        }
+    }
+}
+
+pub fn sfence() {
+    unsafe {
+        core::arch::asm!("sfence.vma")
     }
 }
 
@@ -318,7 +427,7 @@ bitfield::bitfield! {
     accessed, set_accessed: 6;
     dirty, set_dirty: 7;
     dealloc, set_dealloc: 8;
-    swapped, set_swapped: 9;
+    pub swapped, set_swapped: 9;
     ppn, set_ppn: 53, 10;
     reserved, set_reserved: 60, 54;
     pbmt, set_pbmt: 62, 61;

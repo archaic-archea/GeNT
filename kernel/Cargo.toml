@@ -6,15 +6,18 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-linked_list_allocator = "0.9.0"
+linked_list_allocator = "0.10.5"
 spin = "0.9"
-acpi = "4.1.1"
-aml = "0.16.4"
-rsdp = "2.0.0"
+#acpi = "5.0.0"
+#aml = "0.16.4"
+#rsdp = "2.0.0"
+elf = { version = "0.7.2", default-features = false}
 bitfield = "0.14.0"
 bitflags = "2.2.1"
 libsa = { git = "https://github.com/bolt-os/libsa" }
 log = "0.4.14"
+lai = { git = "https://github.com/archaic-archea/lai-rs", branch = "many-things" }
+gimli = { version = "0.28.0", default-features = false}
 
 [dependencies.limine]
 git = "https://github.com/bolt-os/limine-rs"
@@ -22,3 +25,7 @@ git = "https://github.com/bolt-os/limine-rs"
 [dependencies.vmem]
 git = "https://github.com/archaic-archea/vmem.git"
 features = ["log"]
+
+[build-dependencies]
+cc = { version = "1.0", features = ["parallel"] }
+bindgen = "0.68.1"

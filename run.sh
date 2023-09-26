@@ -1,8 +1,11 @@
 rm -rf ./.root
 
+if ! test -d "kernel/lai"; then
+    git clone https://github.com/managarm/lai.git --depth 1
+fi
+
 cd kernel
 cargo build --release
-cd ..
 
 if [ $? -eq 0 ]; then
     echo Build success
@@ -11,13 +14,15 @@ else
     exit
 fi
 
+cd ..
+
 if [ $(uname) == "Darwin" ]; then
     truncate -s 33554432 EDK2.fd 
 else 
     truncate CODE.fd --size 33554432
 fi
 
-if test -d "limine"; then
+if ! test -d "limine"; then
     echo Grabbing Limine
     git clone https://github.com/limine-bootloader/limine.git --depth 1 --branch=v5.x-branch-binary 
 fi 
@@ -29,7 +34,7 @@ cp -v kernel/target/riscv64imac-unknown-none-elf/release/gent-kern config/limine
 mkdir -p .root/EFI/BOOT
 cp -v limine/BOOTRISCV64.EFI .root/EFI/BOOT/
 
-qemu-system-riscv64 \
+qemu-system-riscv64-acpi \
     -machine virt,aclint=on,acpi=on,aia=aplic-imsic \
     -cpu rv64,svpbmt=on \
     -smp 1 \
@@ -39,6 +44,7 @@ qemu-system-riscv64 \
     -drive id=disk1,format=raw,if=none,file=fat:rw:./.root \
     -global virtio-mmio.force-legacy=false \
     -device ramfb \
+    -device virtio-gpu-device \
     -serial mon:stdio \
     -d int \
     -D debug.log
