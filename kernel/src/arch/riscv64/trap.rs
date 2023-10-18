@@ -64,45 +64,34 @@ pub fn init_traps() {
     }
 }
 
-extern "C" fn trap_riscv_main(trapframe: TrapFrame, stval: usize, scause: Cause) {
-    println!("Trapped from address 0x{:x} {scause:?} stval 0x{stval:x}", trapframe.sepc);
+extern "C" fn trap_riscv_main(trapframe: TrapFrame, scause: Cause) {
+    use crate::arch::global::trap::{self, TrapCause, TrapInternal, TrapExternal, AccessFault};
 
-    match scause {
-        Cause::StorePageFault => {
-            let mut table = crate::arch::paging::get_root_table();
+    let trapcause = match scause {
+        Cause::Breakpoint => TrapCause::Internal(TrapInternal::Breakpoint),
+        Cause::IllegalInstr => TrapCause::Internal(TrapInternal::UnknownInstruction),
+        Cause::LoadPageFault => TrapCause::Internal(TrapInternal::PageFault(AccessFault::Load)),
+        Cause::StorePageFault => TrapCause::Internal(TrapInternal::PageFault(AccessFault::Store)),
+        Cause::InstrPageFault => TrapCause::Internal(TrapInternal::PageFault(AccessFault::Exec)),
+        Cause::UnalignedLoad => TrapCause::Internal(TrapInternal::UnalignedAccess(AccessFault::Load)),
+        Cause::UnalignedStore => TrapCause::Internal(TrapInternal::UnalignedAccess(AccessFault::Store)),
+        Cause::UnalignedInst => TrapCause::Internal(TrapInternal::UnalignedAccess(AccessFault::Exec)),
+        Cause::InvalidLoad => TrapCause::Internal(TrapInternal::InvalidAccess(AccessFault::Load)),
+        Cause::InvalidStore => TrapCause::Internal(TrapInternal::InvalidAccess(AccessFault::Store)),
+        Cause::InvalidInstrAddr => TrapCause::Internal(TrapInternal::InvalidAccess(AccessFault::Exec)),
+        Cause::Ecall => TrapCause::Internal(TrapInternal::SystemCall),
 
-            let vaddr = crate::mem::VirtualAddress::new(stval & !0xfff);
-            let proc_id = *crate::scheduler::PROC_ID.lock();
+        Cause::ExtInt => TrapCause::External(TrapExternal::ExternalDevice),
+        Cause::InterProcInt => TrapCause::External(TrapExternal::InterProcInt),
+        Cause::TimerInt => TrapCause::External(TrapExternal::Timer),
 
-            let swapman = crate::mem::swap::SWAP_MAN.lock();
-            let swap_info = swapman.get(&(proc_id, vaddr));
+        Cause::PlatformInt => panic!("Platform specific interrupts not supported"),
+    };
 
-            if swap_info.is_some() {
-                table.swap(vaddr, proc_id).unwrap();
-                println!("Successful swap");
-            } else {
-                panic!("Store page fault with address 0x{stval:x}");
-            }
-        }
-        Cause::LoadPageFault => {
-            let mut table = crate::arch::paging::get_root_table();
-
-            let vaddr = crate::mem::VirtualAddress::new(stval);
-            let proc_id = *crate::scheduler::PROC_ID.lock();
-
-            let swapman = crate::mem::swap::SWAP_MAN.lock();
-            let swap_info = swapman.get(&(proc_id, vaddr));
-
-            if swap_info.is_some() {
-                core::mem::drop(swapman);
-                table.swap(vaddr, proc_id).unwrap();
-                println!("Successful swap");
-            } else {
-                panic!("Load page fault");
-            }
-        }
-        cause => panic!("Trapped with {:?}", cause)
-    }
+    trap::trap_main(
+        trapcause, 
+        trapframe
+    )
 }
 
 #[repr(u64)]
@@ -195,8 +184,7 @@ pub(crate) unsafe extern "C" fn stvec_trap_shim() -> ! {
 
         // Enter args for the main RISC-V trap function
         mv a0, sp
-        csrr a1, stval
-        csrr a2, scause
+        csrr a1, scause
 
         // Check floating point registers
         csrr s0, sstatus
@@ -390,4 +378,18 @@ pub struct GeneralRegisters {
 pub struct TrapFrame {
     regs: GeneralRegisters,
     sepc: usize
+}
+
+impl crate::arch::global::trap::Frame for TrapFrame {
+    fn invalid_addr(&self) -> crate::mem::VirtualAddress {
+        super::csr::Stval::new().addr()
+    }
+
+    fn pagefault_addr(&self) -> crate::mem::VirtualAddress {
+        super::csr::Stval::new().addr()
+    }
+
+    fn unaligned_addr(&self) -> crate::mem::VirtualAddress {
+        super::csr::Stval::new().addr()
+    }
 }

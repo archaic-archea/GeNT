@@ -10,7 +10,8 @@
     asm_const,
     stdsimd,
     riscv_ext_intrinsics,
-    pointer_byte_offsets
+    pointer_byte_offsets,
+    repr128
 )]
 
 extern crate alloc;
@@ -24,6 +25,7 @@ pub mod dev;
 mod scheduler;
 pub mod acpi;
 mod utils;
+mod cpu;
 
 static KERN_FILE: limine::KernelFileRequest = limine::KernelFileRequest::new();
 pub static RSDP: limine::RsdpRequest = limine::RsdpRequest::new();

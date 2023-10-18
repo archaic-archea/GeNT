@@ -25,3 +25,21 @@ impl Satp {
         }
     }
 }
+
+pub struct Stval(usize);
+
+impl Stval {
+    pub fn new() -> Self {
+        unsafe {
+            let val: usize;
+
+            core::arch::asm!("csrr {val}, stval", val = out(reg) val);
+
+            Self(val)
+        }
+    }
+
+    pub fn addr(&self) -> crate::mem::VirtualAddress {
+        crate::mem::VirtualAddress::new(self.0)
+    }
+}

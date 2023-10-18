@@ -1,3 +1,5 @@
+use crate::println;
+
 pub fn get_root_table() -> RootTable {
     let satp_raw: usize;
     unsafe {
@@ -331,60 +333,64 @@ impl RootTable {
             return Err(PageError::NoMapping);
         } 
 
-        if entry.swapped() {
+        let result = if entry.swapped() {
             // Swap it back in
+            let phys = crate::mem::PHYS.alloc(size as usize, vmem::AllocStrategy::NextFit).unwrap();
 
-            let mut lock = crate::mem::swap::SWAP_MAN.lock();
-            let disk_info = lock.remove(&(procid, vaddr)).unwrap();
+            let disk_info = if vaddr.is_kern() {
+                let mut lock = crate::mem::swap::KERN_SWAP.lock();
+                lock.remove(&vaddr).unwrap()
+            } else {
+                let mut lock = crate::mem::swap::SWAP_MAN.lock();
+                lock.remove(&(procid, vaddr)).unwrap()
+            };
 
             let disk_id = disk_info.0;
             let block = disk_info.1;
 
-            core::mem::drop(lock);
-
-            let lock = crate::dev::blockdev::DISKS.lock();
+            let lock = crate::dev::blockdev::PARTS.lock();
             let disk = lock.get(&disk_id).unwrap();
-
-            let phys = crate::mem::PHYS.alloc(size as usize, vmem::AllocStrategy::NextFit).unwrap();
+            println!("Getting disks");
 
             let buf = unsafe {core::slice::from_raw_parts_mut(
                 (phys + crate::mem::HHDM_OFFSET.load(core::sync::atomic::Ordering::Relaxed)) as *mut u8, 
                 size as usize
             )};
 
-            disk.read(buf, block);
+            disk.read(buf, block).unwrap();
 
             entry.set_swapped(false);
             entry.set_ppn((phys >> 12) as u64);
             entry.set_valid(true);
-
-            sfence();
             Ok(())
         } else {
             // Swap it back out
-            
             entry.set_swapped(true);
 
-            let mut swaplock = crate::mem::swap::SWAP_MAN.lock();
+            let mut lock = crate::dev::blockdev::PARTS.lock();
+            let part = lock.get_mut(&0).unwrap();
+    
+            let block_base = part.alloc_blocks((size as usize).div_ceil(part.blocksize()));
 
-            let mut lock = crate::dev::blockdev::DISKS.lock();
-            let disk = lock.get_mut(&0).unwrap();
-
-            let block_base = disk.alloc_blocks((size as usize).div_ceil(disk.blocksize()));
-
-            swaplock.insert((procid, vaddr), (0, block_base));
-            core::mem::drop(swaplock);
+            if vaddr.is_kern() {
+                let mut swaplock = crate::mem::swap::KERN_SWAP.lock();
+                swaplock.insert(vaddr, (0, block_base));
+            } else {
+                let mut swaplock = crate::mem::swap::SWAP_MAN.lock();
+                swaplock.insert((procid, vaddr), (0, block_base));
+            }
 
             let buf = unsafe {core::slice::from_raw_parts(
                 entry.phys().to_virt().to_ptr(), 
                 size as usize
             )};
 
-            disk.write(buf, block_base);
-
-            sfence();
+            part.write(buf, block_base).unwrap();
             Ok(())
-        }
+        };
+
+        sfence();
+        result
     }
 }
 
@@ -442,6 +448,18 @@ impl PageTableEntry {
         self.set_user(perms.user);
         self.set_global(perms.global);
         self.set_dealloc(perms.dealloc);
+    }
+
+    pub fn is_read(&self) -> bool {
+        self.read()
+    }
+
+    pub fn is_write(&self) -> bool {
+        self.write()
+    }
+
+    pub fn is_exec(&self) -> bool {
+        self.exec()
     }
 }
 

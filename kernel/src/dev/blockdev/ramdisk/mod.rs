@@ -7,7 +7,6 @@ pub struct RamDisk {
     buffer: &'static mut [u8],
     blocksize: usize,
     blocks: usize,
-    block_map: vmem::Vmem<'static, 'static>
 }
 
 impl RamDisk {
@@ -23,19 +22,10 @@ impl RamDisk {
             )
         };
 
-        let block_map = vmem::Vmem::new(
-            alloc::borrow::Cow::Borrowed("RAMDISK"), 
-            blocksize, 
-            None
-        );
-
-        block_map.add(0, totalsize).unwrap();
-
         Self { 
             buffer: unsafe {core::slice::from_raw_parts_mut(alloc, totalsize)}, 
             blocksize,
             blocks,
-            block_map
         }
     }
 }
@@ -47,6 +37,10 @@ impl super::Disk for RamDisk {
 
     fn blocksize(&self) -> usize {
         self.blocksize
+    }
+
+    fn chs_end(&self) -> u32 {
+        0xffffffff
     }
 
     fn read(&self, buffer: &mut [u8], block: usize) {
@@ -71,10 +65,5 @@ impl super::Disk for RamDisk {
 
             self.buffer[selfidx] = *byte;
         }
-    }
-
-    fn alloc_blocks(&self, blocks: usize) -> usize {
-        println!("Allocating {} blocks", blocks);
-        self.block_map.alloc(blocks * self.blocksize, vmem::AllocStrategy::NextFit).unwrap()
     }
 }

@@ -54,4 +54,8 @@ impl VirtualAddress {
             transmute(bits)
         }
     }
+
+    pub fn is_kern(&self) -> bool {
+        (self.0 >> 63) == 1
+    }
 }

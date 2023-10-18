@@ -48,7 +48,7 @@ extern "C" fn kinit() -> ! {
 
     gent_kern::dev::blockdev::init();
 
-    let host = alloc::sync::Arc::new(gent_kern::acpi::Host);
+    /*let host = alloc::sync::Arc::new(gent_kern::acpi::Host);
 
     lai::init(host);
     lai::create_namespace();
@@ -68,7 +68,7 @@ extern "C" fn kinit() -> ! {
 
     let intcontroller = acpi::tables::madt::RiscvIntController::from_entry(
         madt.entry(0).unwrap()
-    ).unwrap();
+    ).unwrap();*/
 
     //let mut fw_cfg = lai::resolve_path(None, "\\_SB_.FWCF._CRS").unwrap();
     //let fw_cfg = fw_cfg.eval().unwrap();
@@ -175,7 +175,7 @@ extern "C" fn kinit() -> ! {
         _ => unreachable!()
     }*/
 
-    /*let phys = gent_kern::mem::PHYS.alloc(4096, vmem::AllocStrategy::NextFit).unwrap();
+    let phys = gent_kern::mem::PHYS.alloc(4096, vmem::AllocStrategy::NextFit).unwrap();
     let virt = gent_kern::mem::VIRT.alloc(4096, vmem::AllocStrategy::NextFit).unwrap();
 
     println!("Allocated swappable RAM at virt 0x{:x} phys 0x{:x}", virt, phys);
@@ -216,13 +216,12 @@ extern "C" fn kinit() -> ! {
         gent_kern::mem::VirtualAddress::new(virt), 
         0
     ).unwrap();
+    println!("Swapped data out");
 
     unsafe {
-       println!("{}", *(virt as *mut u8));
-       println!("Writing (should generate a `Store Page Fault`)");
-       (virt as *mut u8).write_volatile(0);
-       println!("{}", *(virt as *mut u8));
-    }*/
+        let val = (virt as *const u8).read_volatile();
+        println!("{}", val);
+    }
 
     panic!("Kernel end");
 }

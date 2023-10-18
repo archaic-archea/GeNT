@@ -1,3 +1,5 @@
+pub(crate) mod trap;
+
 use core::mem::MaybeUninit;
 
 use libsa::endian::BigEndianU32;
