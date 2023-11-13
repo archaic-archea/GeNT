@@ -2,3 +2,5 @@
 /limine
 /.root
 /*.log
+/zig-cache/*
+/zig-out/*

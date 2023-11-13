@@ -4,8 +4,15 @@ if ! test -d "kernel/lai"; then
     git clone https://github.com/managarm/lai.git --depth 1
 fi
 
+if ! test -d "vmem"; then
+    git clone git@github.com:archaic-archea/vmem.git --depth 1
+    cd vmem
+    cargo build
+    cd ..
+fi
+
 cd kernel
-cargo build --release
+zig build
 
 if [ $? -eq 0 ]; then
     echo Build success
@@ -28,7 +35,8 @@ if ! test -d "limine"; then
 fi 
 make -C limine
 mkdir -p .root
-cp -v kernel/target/riscv64imac-unknown-none-elf/release/gent-kern config/limine.cfg limine/limine-bios.sys \
+#cp -v kernel/target/riscv64imac-unknown-none-elf/release/gent-kern config/limine.cfg limine/limine-bios.sys \
+cp -v zig-out/bin/GeNT config/limine.cfg limine/limine-bios.sys \
       limine/limine-bios-cd.bin limine/limine-uefi-cd.bin \
       .root/
 mkdir -p .root/EFI/BOOT
@@ -44,8 +52,6 @@ qemu-system-riscv64-acpi \
     -drive id=disk1,format=raw,if=none,file=fat:rw:./.root \
     -global virtio-mmio.force-legacy=false \
     -device ramfb \
-    -device virtio-gpu-device \
     -serial mon:stdio \
-    -bios rsbi \
     -d int \
     -D debug.log
