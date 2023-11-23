@@ -81,6 +81,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     println!("cargo:rerun-if-changed=linker.lds");
     println!("cargo:rustc-link-arg=--script=linker.lds");
+    println!("cargo:rustc-link-arg=-znostart-stop-gc");
 
     Ok(())
 }

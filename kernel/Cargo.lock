@@ -118,6 +118,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "crossbeam-queue"
+version = "0.3.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d1cfb3ea8a53f37c40dea2c7bedcbd88bdfae54f5e2175d6ecaff1c988353add"
+dependencies = [
+ "cfg-if",
+ "crossbeam-utils",
+]
+
+[[package]]
+name = "crossbeam-utils"
+version = "0.8.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a22b2d63d4d1dc0b7f1b6b2747dd0088008a9be28b6ddf0b1e7d335e3037294"
+dependencies = [
+ "cfg-if",
+]
+
+[[package]]
 name = "either"
 version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -158,13 +177,16 @@ dependencies = [
  "bitfield",
  "bitflags 2.4.0",
  "cc",
+ "crossbeam-queue",
  "elf",
  "gimli",
  "lai",
  "libsa",
  "limine",
  "linked_list_allocator",
+ "linkset",
  "log",
+ "sbi",
  "spin",
  "vmem",
 ]
@@ -259,6 +281,11 @@ checksum = "9afa463f5405ee81cdb9cc2baf37e08ec7e4c8209442b5d72c04cfb2cd6e6286"
 dependencies = [
  "spinning_top",
 ]
+
+[[package]]
+name = "linkset"
+version = "0.1.0"
+source = "git+https://github.com/xvanc/linkset.git#431c7d424665c4f53ee47f3c9bb1ddfd54503e98"
 
 [[package]]
 name = "linux-raw-sys"
@@ -391,6 +418,12 @@ dependencies = [
  "linux-raw-sys",
  "windows-sys",
 ]
+
+[[package]]
+name = "sbi"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29cb0870400aca7e4487e8ec1e93f9d4288da763cb1da2cedc5102e62b6522ad"
 
 [[package]]
 name = "scopeguard"

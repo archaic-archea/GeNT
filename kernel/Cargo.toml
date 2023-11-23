@@ -18,6 +18,8 @@ libsa = { git = "https://github.com/bolt-os/libsa" }
 log = "0.4.14"
 lai = { git = "https://github.com/archaic-archea/lai-rs", branch = "many-things" }
 gimli = { version = "0.28.0", default-features = false}
+crossbeam-queue = { version = "0.3.8", default-features = false, features = ["alloc"]}
+linkset = { git = "https://github.com/xvanc/linkset.git", default-features = false }
 
 [dependencies.limine]
 git = "https://github.com/bolt-os/limine-rs"
@@ -29,3 +31,6 @@ features = ["log"]
 [build-dependencies]
 cc = { version = "1.0", features = ["parallel"] }
 bindgen = "0.68.1"
+
+[target.'cfg(target_arch = "riscv64")'.dependencies]
+sbi = "0.2.0"
