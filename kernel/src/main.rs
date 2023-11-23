@@ -4,13 +4,11 @@
     naked_functions,
     int_roundings,
     strict_provenance,
-    pointer_byte_offsets,
     fn_align
 )]
 
 extern crate alloc;
 
-use alloc::format;
 use gent_kern::{println, print};
 use gent_kern::acpi;
 
@@ -18,7 +16,7 @@ static MMAP: limine::MemoryMapRequest = limine::MemoryMapRequest::new();
 
 #[no_mangle]
 extern "C" fn kinit() -> ! {
-    log::set_logger(&gent_kern::uart::Logger).unwrap();
+    log::set_logger(&gent_kern::Logger).unwrap();
     log::set_max_level(log::LevelFilter::Info);
 
     println!("Starting kernel");
@@ -33,42 +31,144 @@ extern "C" fn kinit() -> ! {
     for entry in memory_map.usable_entries() {
         gent_kern::mem::PHYS.add(entry.base, entry.size).expect("Failed to add entry");
     }
-
     println!("Memory map fetched");
 
     gent_kern::find_upperhalf_mem();
     println!("Upperhalf found");
 
-    gent_kern::mem::tls::init_tls();
-    gent_kern::arch::trap::init_traps();
-    println!("Traps initialized");
-
     gent_kern::allocator::init();
     println!("Memory initialized");
 
-    gent_kern::dev::blockdev::init();
+    gent_kern::acpi::init_acpi();
 
-    /*let host = alloc::sync::Arc::new(gent_kern::acpi::Host);
+    gent_kern::arch::init();
+
+    gent_kern::parse_kern_file();
+    gent_kern::arch::trap::init_traps();
+    println!("Traps initialized");
+
+    gent_kern::scheduler::init_scheduler();
+
+    gent_kern::dev::window::init();
+
+    for fb in gent_kern::FBREQ.response().unwrap().framebuffers() {
+        println!("Adding framebuffer {:?}", fb);
+        gent_kern::dev::window::DISPLAY_QUEUE.push(
+            gent_kern::dev::window::Request::AddFrameBuffer(
+                fb.addr as *mut u32, 
+                fb.width as usize, 
+                fb.height as usize, 
+                fb.stride as usize
+            )
+        )
+    }
+
+    gent_kern::dev::blockdev::init();
+    println!("Block device initialized");
+
+    let host = alloc::sync::Arc::new(gent_kern::acpi::Host);
 
     lai::init(host);
     lai::create_namespace();
 
-    println!("Made LAI namespace");
+    println!("LAI initialized");
+
+    let device_iter = lai::resolve_path(None, "\\_SB_").unwrap();
+
+    // Store driver refs temporarily
+    let mut btree = alloc::collections::BTreeMap::new();
+
+    for driver in &gent_kern::dev::DRIVERS {
+        println!("Found driver {}", driver.id);
+        btree.insert(driver.id, driver.init);
+    }
+
+    for dev in device_iter.into_iter() {
+        if let Some(hid) = dev.child("_HID") {
+            let hid = hid.object().get_str().unwrap();
+            println!("Found device with HID {:?}", hid);
+            
+            if let Some(driver) = btree.get(hid) {
+                driver(dev);
+            }
+        }
+    }
+
+    fn print_nodes(tabs: usize, node: lai::Node) {
+        print!("{}-└{} {:?}", "  ".repeat(tabs), node.name(), node.object().typ());
+    
+        if node.object().typ() == lai::ObjectType::String {
+            println!(" {:#?}", node.object().get_str().unwrap());
+        } else {
+            println!()
+        }
+    
+        for node in node.into_iter() {
+            print_nodes(tabs + 1, node);
+        }
+    }
 
     print_nodes(0, lai::get_root());
 
-    let rsdp = unsafe {&*{gent_kern::RSDP.response().unwrap().rsdp_addr as *mut acpi::tables::Rsdp}};
+    /*let rsdp = unsafe {&*{gent_kern::RSDP.response().unwrap().rsdp_addr as *mut acpi::tables::Rsdp}};
     let rsdt = rsdp.rsdt();
 
     for node in rsdt.into_iter() {
         println!("Found node {:#?}", node.name());
     }
     
-    let madt = unsafe {&*(rsdt.get_table("APIC") as *const acpi::tables::madt::Madt)};
+    let madt_ptr = (*acpi::tables::LOOKUP_TABLE.lock().get(b"APIC").unwrap() as *const acpi::tables::SdtHeader).cast_mut() as *mut acpi::tables::madt::Madt;
+    gent_kern::arch::trap::MADT.store(madt_ptr, core::sync::atomic::Ordering::Relaxed);
+    let madt = unsafe {&*madt_ptr};
 
-    let intcontroller = acpi::tables::madt::RiscvIntController::from_entry(
-        madt.entry(0).unwrap()
-    ).unwrap();*/
+    let iter = madt.iter();
+
+    for entry in iter {
+        use acpi::tables::madt::{EntryType, self};
+
+        match entry.etype() {
+            EntryType::RiscvIntController => {
+                let ctrl = madt::RiscvIntController::from_entry(entry).unwrap();
+
+                if !ctrl.supported() {
+                    println!("Unsupported RINTC");
+                    break;
+                }
+                println!("Found supported {:#x?}", ctrl);
+            },
+            EntryType::Imsic => {
+                let ctrl = madt::Imsic::from_entry(entry).unwrap();
+
+                if !ctrl.supported() {
+                    println!("Unsupported IMSIC");
+                    break;
+                }
+
+                println!("Found supported {:#x?}", ctrl);
+            },
+            EntryType::Aplic => {
+                let ctrl = madt::Aplic::from_entry(entry).unwrap();
+
+                if !ctrl.supported() {
+                    println!("Unsupported APLIC");
+                    break;
+                }
+
+                println!("Found supported {:#x?}", ctrl);
+            },
+            EntryType::Plic => {
+                let ctrl = madt::Plic::from_entry(entry).unwrap();
+
+                if !ctrl.supported() {
+                    println!("Unsupported PLIC");
+                    break;
+                }
+
+                println!("Found supported {:#x?}", ctrl);
+            },
+            etype => panic!("Unhandled etype {:?}", etype)
+        }
+    }*/
 
     //let mut fw_cfg = lai::resolve_path(None, "\\_SB_.FWCF._CRS").unwrap();
     //let fw_cfg = fw_cfg.eval().unwrap();
@@ -175,55 +275,64 @@ extern "C" fn kinit() -> ! {
         _ => unreachable!()
     }*/
 
-    let phys = gent_kern::mem::PHYS.alloc(4096, vmem::AllocStrategy::NextFit).unwrap();
-    let virt = gent_kern::mem::VIRT.alloc(4096, vmem::AllocStrategy::NextFit).unwrap();
+    gent_kern::scheduler::spawn_kernel_thread(gent_kern::dev::window::display_thread, 4);
+    gent_kern::scheduler::spawn_kernel_thread(draw, 4);
 
-    println!("Allocated swappable RAM at virt 0x{:x} phys 0x{:x}", virt, phys);
+    let timer = gent_kern::arch::timer::get_timer();
+    gent_kern::arch::timer::set_timer(timer);
+    slow_loop();
+}
 
-    let mut root = gent_kern::arch::paging::get_root_table();
-    unsafe {
-        root.map(
-            gent_kern::mem::VirtualAddress::new(virt), 
-            gent_kern::mem::PhysicalAddress::new(phys), 
-            gent_kern::arch::paging::PagePermissions {
-                read: true,
-                write: true,
-                execute: false,
-                user: false,
-                global: false,
-                dealloc: true,
-            }, 
-            gent_kern::arch::paging::PageSize::Kilopage
-        ).unwrap();
+fn draw() -> ! {
+    use gent_kern::dev::window;
+    use core::num::NonZeroUsize;
 
-        *(virt as *mut u8) = 243;
+    let mut win_id_raw = 0;
+    let mut buffer = core::ptr::null_mut();
+    let mut complete = false;
+    const SIZE: usize = 256;
+    window::DISPLAY_QUEUE.push(
+        window::Request::AddWindow(SIZE, SIZE, &mut win_id_raw, &mut buffer, &mut complete)
+    );
 
-        root.get_entry(
-            gent_kern::mem::VirtualAddress::new(virt)
-        ).set_perms(gent_kern::arch::paging::PagePermissions {
-            read: true,
-            write: false,
-            execute: false,
-            user: false,
-            global: false,
-            dealloc: true,
-        });
+    while unsafe { !(&complete as *const bool).read_volatile() } {}
+
+    let win_id = NonZeroUsize::new(win_id_raw).unwrap();
+
+    for i in 0..SIZE * SIZE {
+        unsafe {
+            buffer.add(i).write_volatile(0xffffff00);
+        }
     }
 
-    println!("Swapping out 0x{:x}", virt);
+    println!("Finished setting up yellow window {} buffer {:?}", win_id, buffer);
 
-    root.swap(
-        gent_kern::mem::VirtualAddress::new(virt), 
-        0
-    ).unwrap();
-    println!("Swapped data out");
+    let mut win_id_raw = 0;
+    let mut buffer2 = core::ptr::null_mut();
+    let mut complete = false;
+    window::DISPLAY_QUEUE.push(
+        window::Request::AddWindow(128, 128, &mut win_id_raw, &mut buffer2, &mut complete)
+    );
 
-    unsafe {
-        let val = (virt as *const u8).read_volatile();
-        println!("{}", val);
+    while unsafe { !(&complete as *const bool).read_volatile() } {}
+
+    let win_id2 = NonZeroUsize::new(win_id_raw).unwrap();
+
+    for i in 0..128 * 128 {
+        unsafe {
+            buffer2.add(i).write_volatile(0xffffffff);
+        }
     }
 
-    panic!("Kernel end");
+    println!("Finished setting up white window {} buffer {:?}", win_id2, buffer2);
+
+    for i in 0.. {
+        window::DISPLAY_QUEUE.push(
+            window::Request::Move(win_id2, i, i)
+        );
+    }
+
+    loop {}
 }
 
 #[panic_handler]
@@ -234,16 +343,8 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
     }
 }
 
-fn print_nodes(tabs: usize, node: lai::Node) {
-    print!("{}-└{} {:?}", "  ".repeat(tabs), node.name(), node.object().typ());
-
-    if node.object().typ() == lai::ObjectType::String {
-        println!(" {:#?}", node.object().get_str().unwrap());
-    } else {
-        println!()
-    }
-
-    for node in node.into_iter() {
-        print_nodes(tabs + 1, node);
+fn slow_loop() -> ! {
+    loop {
+        gent_kern::arch::utils::slow();
     }
 }

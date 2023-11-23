@@ -1,3 +1,8 @@
+use alloc::collections::BTreeMap;
+use spin::Mutex;
+
+use crate::println;
+
 pub mod madt;
 
 #[repr(C)]
@@ -16,9 +21,9 @@ pub struct Rsdp {
 impl Rsdp {
     pub fn rsdt(&self) -> &'static Rsdt {
         let ptr = if self.rev >= 1 {
-            self.xsdt_addr as *mut Rsdt
+            (self.xsdt_addr as usize + crate::mem::HHDM_OFFSET.load(core::sync::atomic::Ordering::Relaxed)) as *mut Rsdt
         } else {
-            self.rsdt_addr as *mut Rsdt
+            (self.rsdt_addr as usize + crate::mem::HHDM_OFFSET.load(core::sync::atomic::Ordering::Relaxed)) as *mut Rsdt
         };
 
         unsafe {
@@ -63,12 +68,12 @@ impl Rsdt {
                 let ptr = ptr as *const u64;
                 assert!(*ptr != 0);
     
-                *ptr.add(index) as *const SdtHeader
+                (*ptr.add(index) as *const SdtHeader).byte_add(crate::mem::HHDM_OFFSET.load(core::sync::atomic::Ordering::Relaxed))
             } else {
                 let ptr = ptr as *const u32;
                 assert!(*ptr != 0);
 
-                *ptr.add(index) as *const SdtHeader
+                (*ptr.add(index) as *const SdtHeader).byte_add(crate::mem::HHDM_OFFSET.load(core::sync::atomic::Ordering::Relaxed))
             }
         }
     } 
@@ -85,45 +90,35 @@ impl Rsdt {
         } else {
             4
         };
-
         (self.header.len as usize - core::mem::size_of::<SdtHeader>()) / ptr_size
     }
 
-    pub fn get_table(&self, sig: &str) -> *const SdtHeader {
-
-        let mut subtable = false;
-        let mut subtable_sig = "";
-
-        let sig = if sig == "DSDT" {
-            subtable = true;
-            subtable_sig = "DSDT";
-            "FACP"
-        } else {
-            sig
-        };
-
-        let mut main_table = core::ptr::null();
-
+    pub fn get_tables(&self) {
         for i in 0..self.entries() {
             let table = unsafe {&*self.header_ptr(i)};
             
-            if table.name() == sig {
-                main_table = self.header_ptr(i);
-                break;
-            }
-        }
-        
-        if subtable {
-            if sig == "FACP" {
-                let table = unsafe {&*(main_table as *const Fadt)};
-
-                main_table = table.get_table(subtable_sig);
+            if table.name() == "FACP" {
+                println!(
+                    "Found ACPI table {}{}{}{}",
+                    table.sig[0] as char,
+                    table.sig[1] as char,
+                    table.sig[2] as char,
+                    table.sig[3] as char,
+                );
+                LOOKUP_TABLE.lock().insert(*b"FACP", table);
+                let table = unsafe {&*((table as *const SdtHeader) as *const Fadt)};
+                table.get_table()
             } else {
-                panic!("Unhandled signature {:#?}", sig);
+                println!(
+                    "Found ACPI table {}{}{}{}",
+                    table.sig[0] as char,
+                    table.sig[1] as char,
+                    table.sig[2] as char,
+                    table.sig[3] as char,
+                );
+                LOOKUP_TABLE.lock().insert(table.sig, table);
             }
         }
-
-        main_table
     }
 }
 
@@ -260,10 +255,18 @@ pub struct AddrStruct {
 }
 
 impl Fadt {
-    pub fn get_table(&self, sig: &str) -> *const SdtHeader {
-        match sig {
-            "DSDT" => self.dsdt as *const SdtHeader,
-            _ => panic!("Unrecognized signature {:#?}", sig)
-        }
+    pub fn get_table(&self) {
+        let _ = LOOKUP_TABLE.lock().insert(*b"DSDT", unsafe {&*(self.dsdt as *const SdtHeader).byte_add(crate::mem::HHDM_OFFSET.load(core::sync::atomic::Ordering::Relaxed))});
     }
+}
+
+pub static LOOKUP_TABLE: Mutex<BTreeMap<[u8; 4], &'static SdtHeader>> = Mutex::new(BTreeMap::new());
+
+#[repr(C)]
+pub struct Rhct {
+    pub header: SdtHeader,
+    pub flags: u32,
+    pub timer_freq: u64,
+    pub nodess: u32,
+    pub offset: u32,
 }

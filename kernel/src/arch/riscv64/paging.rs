@@ -1,4 +1,6 @@
-use crate::println;
+use core::ops::Range;
+
+use crate::{println, mem::{PhysicalAddress, VirtualAddress}};
 
 pub fn get_root_table() -> RootTable {
     let satp_raw: usize;
@@ -14,6 +16,18 @@ pub fn get_root_table() -> RootTable {
     RootTable(satp.phys().to_virt().to_mut_ptr(), satp.mode())
 }
 
+/// # Safety
+/// Table must be a valid pointer and must contain kernel mappings
+pub unsafe fn load_pagetable(table: *const PageTable) {
+    let mut satp = super::csr::Satp::default();
+    satp.set_phys(VirtualAddress::new(table as usize).to_phys());
+    
+    unsafe {
+        satp.load();
+    }
+}
+
+#[derive(Clone, Copy)]
 pub enum Mode {
     Bare = 0,
     Sv39 = 8,
@@ -133,6 +147,62 @@ pub struct PagePermissions {
     pub dealloc: bool,
 }
 
+impl PagePermissions {
+    pub const K_READ_ONLY: Self = Self {
+        read: true,
+        write: false,
+        execute: false,
+        user: false,
+        global: false,
+        dealloc: false,
+    };
+
+    pub const U_READ_ONLY: Self = Self {
+        read: true,
+        write: false,
+        execute: false,
+        user: true,
+        global: false,
+        dealloc: false,
+    };
+
+    pub const K_WRITE: Self = Self {
+        read: true,
+        write: true,
+        execute: false,
+        user: false,
+        global: false,
+        dealloc: false,
+    };
+
+    pub const U_WRITE: Self = Self {
+        read: true,
+        write: true,
+        execute: false,
+        user: true,
+        global: false,
+        dealloc: false,
+    };
+
+    pub const K_EXEC: Self = Self {
+        read: true,
+        write: false,
+        execute: true,
+        user: false,
+        global: false,
+        dealloc: false,
+    };
+
+    pub const U_EXEC: Self = Self {
+        read: true,
+        write: false,
+        execute: true,
+        user: true,
+        global: false,
+        dealloc: false,
+    };
+}
+
 #[derive(Debug)]
 pub enum PageError {
     MappingExists(PageTableEntry),
@@ -144,6 +214,26 @@ pub enum PageError {
 pub struct RootTable(*mut PageTable, Mode);
 
 impl RootTable {
+    /// # Safety
+    /// Must be a valid pointer
+    pub unsafe fn from_ptr(ptr: *mut PageTable) -> Self {
+        let satp_raw: usize;
+        unsafe {
+            core::arch::asm!(
+                "csrr {satp}, satp",
+                satp = out(reg) satp_raw,
+            );
+        }
+    
+        let satp: super::csr::Satp = unsafe {core::mem::transmute(satp_raw)};
+
+        Self(ptr, satp.mode())
+    }
+
+    pub fn addr(&self) -> *mut PageTable {
+        self.0
+    }
+
     /// # Safety
     /// Can change what memory addresses are valid to access, and how its valid to access it.
     pub unsafe fn map(
@@ -200,6 +290,27 @@ impl RootTable {
         }
         
         unreachable!()
+    }
+
+    /// # Safety
+    /// Deletes tables, be careful jfc
+    pub unsafe fn remove_entries(
+        &mut self,
+        range: Range<usize>,
+    ) {
+        for i in range {
+            let entry = &mut (*self.0).0[i];
+            if entry.read() {
+                entry.set_valid(false);
+            } else if entry.valid() {
+                entry.set_valid(false);
+                let mut phys = entry.phys().to_virt();
+
+                RootTable(phys.to_mut_ptr(), self.1).remove_entries(0..512);
+
+                crate::mem::PHYS.add(phys.addr(), 0x1000).unwrap();
+            }
+        }
     }
 
     /// # Safety

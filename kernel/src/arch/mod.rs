@@ -6,6 +6,12 @@ pub use riscv64::*;
 
 pub mod global;
 
+#[derive(Clone, Copy)]
+pub enum Mode {
+    Supervisor,
+    User,
+}
+
 #[macro_export]
 macro_rules! no_io_ports {
     ($t:ident) => {

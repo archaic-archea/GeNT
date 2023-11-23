@@ -1,3 +1,5 @@
+use crate::println;
+
 #[repr(C)]
 pub enum TrapCause {
     External(TrapExternal),
@@ -5,6 +7,7 @@ pub enum TrapCause {
 }
 
 #[repr(C)]
+#[derive(Debug)]
 pub enum TrapInternal {
     UnalignedAccess(AccessFault),
     InvalidAccess(AccessFault),
@@ -21,23 +24,31 @@ pub enum TrapExternal {
     ExternalDevice
 }
 
+#[derive(Debug)]
 pub enum AccessFault {
     Load,
     Store,
     Exec,
 }
 
-pub fn trap_main<T: Frame>(trapcause: TrapCause, regframe: T) {
-    use crate::arch::trap;
-
+pub fn trap_main(trapcause: TrapCause, regframe: &mut crate::arch::trap::TrapFrame) {
     match trapcause {
-        TrapCause::External(_) => todo!("Handle external interrupts"),
+        TrapCause::External(cause) => {
+            match cause {
+                TrapExternal::Timer => {
+                    crate::arch::timer::set_timer(u128::MAX);
+                    crate::scheduler::next(regframe)
+                }
+                _ => todo!("Handle external interrupts"),
+            }
+        },
         TrapCause::Internal(cause) => {
             match cause {
                 TrapInternal::PageFault(fault) => {
+                    println!("Register frame dump {:#x?}", regframe);
                     page_fault(fault, regframe.pagefault_addr())
                 },
-                _ => panic!()
+                _ => panic!("Hit unhandled cause {:?} frame {:#x?} address 0x{:x}", cause, regframe, regframe.invalid_addr().addr())
             }
         }
     }
@@ -61,6 +72,8 @@ pub fn page_fault(reason: AccessFault, vaddr: crate::mem::VirtualAddress) {
 
     if entry.swapped() {
         root.swap(vaddr, crate::cpu::THREAD_CTRL_BLOCK.lock().proc_id()).unwrap();
+    } else if false {
+        
     } else {
         panic!("Entry was invalid despite fault 0x{:x}", vaddr.addr())
     }

@@ -1,5 +1,7 @@
 use core::mem::transmute;
 
+use crate::mem::PhysicalAddress;
+
 bitfield::bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
     pub struct VirtualAddress(u64);
@@ -57,5 +59,9 @@ impl VirtualAddress {
 
     pub fn is_kern(&self) -> bool {
         (self.0 >> 63) == 1
+    }
+
+    pub fn to_phys(self) -> PhysicalAddress {
+        PhysicalAddress::new(self.addr() - crate::mem::HHDM_OFFSET.load(core::sync::atomic::Ordering::Relaxed))
     }
 }

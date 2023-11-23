@@ -124,3 +124,9 @@ impl PortAccess for BigEndianU32 {
         PortAccess::write(location, val.get())
     }
 }
+
+pub struct IpiTarg(usize);
+pub enum IpiMsg {
+    Kernel,
+    Driver,
+}

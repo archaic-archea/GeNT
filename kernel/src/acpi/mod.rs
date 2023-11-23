@@ -7,6 +7,15 @@ pub mod raw_lai {
 
 pub mod tables;
 
+pub fn init_acpi() {
+    let rsdp = crate::RSDP.response().unwrap().rsdp_addr as *mut tables::Rsdp;
+    
+    unsafe {
+        let xsdt = (*rsdp).rsdt();
+        xsdt.get_tables();
+    }
+}
+
 pub struct Host;
 
 fn layout(size: usize) -> Layout {
@@ -14,6 +23,7 @@ fn layout(size: usize) -> Layout {
         Layout::from_size_align_unchecked(size, core::mem::align_of::<usize>())
     }
 }
+
 
 impl lai::Host for Host {
     unsafe fn alloc(&self, size: usize) -> *mut u8 {
@@ -179,13 +189,25 @@ impl lai::Host for Host {
     }
 
     fn scan(&self, signature: &str, _index: usize) ->  *mut u8 {
-        let rsdp = crate::RSDP.response().unwrap().rsdp_addr as *mut tables::Rsdp;
+        /*let rsdp = crate::RSDP.response().unwrap().rsdp_addr as *mut tables::Rsdp;
+        println!("RSDP {:?}", rsdp);
         
         unsafe {
             let xsdt = (*rsdp).rsdt();
             
             xsdt.get_table(signature) as *mut u8
+        }*/
+
+        let sig = [signature.as_bytes()[0], signature.as_bytes()[1], signature.as_bytes()[2], signature.as_bytes()[3]];
+
+        let lock = tables::LOOKUP_TABLE.lock();
+        let lookup = lock.get(&sig);
+
+        if lookup.is_none() {
+            return core::ptr::null_mut();
         }
+
+        (*lookup.unwrap() as *const tables::SdtHeader).cast_mut() as *mut u8
     }
 
     fn sleep(&self,_ms:u64) {

@@ -1,4 +1,8 @@
+use core::sync::atomic::AtomicPtr;
+
 use crate::println;
+
+pub static MADT: AtomicPtr<crate::acpi::tables::madt::Madt> = AtomicPtr::new(core::ptr::null_mut());
 
 #[repr(C)]
 struct Sscratch {
@@ -10,19 +14,31 @@ struct Sscratch {
 
 #[thread_local]
 static mut SSCRATCH: Sscratch = Sscratch {
-    kgp: 0,
     ksp: 0,
     ktp: 0,
+    kgp: 0,
     stack_scratch: 0,
 };
+
+pub fn disable() {
+    let mut sie = super::csr::Sie::default();
+    sie.set_seie(false);
+    sie.set_stie(false);
+    unsafe {sie.load()}
+}
+
+pub fn enable() {
+    let mut sie = super::csr::Sie::default();
+    sie.set_seie(true);
+    sie.set_stie(true);
+    unsafe {sie.load()}
+}
 
 pub fn init_traps() {
     unsafe {
         const STACK_SIZE: usize = 0x1000;
 
-        println!("Initializing traps");
         SSCRATCH.kgp = crate::mem::linker::__global_pointer.as_usize();
-        println!("Loaded GP");
         
         let virt = crate::mem::VIRT.alloc(STACK_SIZE, vmem::AllocStrategy::NextFit).unwrap();
         let phys = crate::mem::PHYS.alloc(STACK_SIZE, vmem::AllocStrategy::NextFit).unwrap();
@@ -49,22 +65,30 @@ pub fn init_traps() {
         }
 
         SSCRATCH.ksp = virt;
-        println!("Loaded SP");
 
         SSCRATCH.ktp = crate::mem::tls::TLS.load(core::sync::atomic::Ordering::Relaxed);
-        println!("Loaded TP");
         
         let ptr = core::ptr::addr_of!(SSCRATCH) as usize;
-        println!("Made pointer");
 
         core::arch::asm!(
             "csrw sscratch, {sscratch}",
             sscratch = in(reg) ptr
         );
+
+        crate::arch::timer::set_timer(u128::MAX);
+
+        let mut sstatus = super::csr::Sstatus::default();
+        sstatus.set_sie(true);
+        sstatus.load();
+
+        let mut sie = super::csr::Sie::default();
+        sie.set_stie(true);
+        sie.set_seie(true);
+        sie.load();
     }
 }
 
-extern "C" fn trap_riscv_main(trapframe: TrapFrame, scause: Cause) {
+extern "C" fn trap_riscv_main(trapframe: &mut TrapFrame, scause: Cause) {
     use crate::arch::global::trap::{self, TrapCause, TrapInternal, TrapExternal, AccessFault};
 
     let trapcause = match scause {
@@ -91,7 +115,7 @@ extern "C" fn trap_riscv_main(trapframe: TrapFrame, scause: Cause) {
     trap::trap_main(
         trapcause, 
         trapframe
-    )
+    );
 }
 
 #[repr(u64)]
@@ -125,7 +149,7 @@ pub(crate) unsafe extern "C" fn stvec_trap_shim() -> ! {
 
         // Swap stack pointers
         sd sp, 24(t0)
-        ld sp, 8(t0)
+        ld sp, 0(t0)
 
         // Increase stack pointer for the registers
         addi sp, sp, {TRAP_FRAME_SIZE}
@@ -135,12 +159,14 @@ pub(crate) unsafe extern "C" fn stvec_trap_shim() -> ! {
         sd tp, 24(sp)
 
         // Store user stack onto kernel stack
-        ld gp, 24(t0)
-        sd gp, 8(sp)
+        ld gp, 16(t0)
         
         // Load kernel gp and tp
-        ld gp, 0(t0)
-        ld tp, 16(t0)
+        ld gp, 16(t0)
+        ld tp, 8(t0)
+
+        ld t1, 24(t0)
+        sd t1, 8(sp)
 
         // Sscratch isnt needed anymore, we can swap it back
         csrrw t0, sscratch, t0
@@ -340,6 +366,7 @@ pub(crate) unsafe extern "C" fn stvec_trap_shim() -> ! {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy, Default, Debug)]
 pub struct GeneralRegisters {
     pub ra: usize,
     pub sp: usize,
@@ -375,9 +402,10 @@ pub struct GeneralRegisters {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy, Default, Debug)]
 pub struct TrapFrame {
-    regs: GeneralRegisters,
-    sepc: usize
+    pub regs: GeneralRegisters,
+    pub sepc: usize
 }
 
 impl crate::arch::global::trap::Frame for TrapFrame {
@@ -391,5 +419,23 @@ impl crate::arch::global::trap::Frame for TrapFrame {
 
     fn unaligned_addr(&self) -> crate::mem::VirtualAddress {
         super::csr::Stval::new().addr()
+    }
+}
+
+impl TrapFrame {
+    pub fn with_pc(pc: usize) -> Self {
+        Self {sepc: pc, ..Default::default()}
+    }
+
+    pub fn set_pc(&mut self, pc: usize) {
+        self.sepc = pc;
+    }
+
+    pub fn set_stack(&mut self, stack: usize) {
+        self.regs.sp = stack;
+    }
+
+    pub fn pc(&self) -> usize {
+        self.sepc
     }
 }

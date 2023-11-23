@@ -3,8 +3,24 @@ pub struct Allocator;
 static HEAP: vmem::Vmem = vmem::Vmem::new(
     alloc::borrow::Cow::Borrowed("HEAP"), 
     1, 
-    None
+    Some(&PhysSrc)
 );
+
+struct PhysSrc;
+
+unsafe impl vmem::Source for PhysSrc {
+    fn import(&self, size: usize) -> vmem::Result<usize> {
+        let base = crate::mem::PHYS.alloc(size, vmem::AllocStrategy::NextFit)?;
+        let base = base + crate::mem::HHDM_OFFSET.load(core::sync::atomic::Ordering::Relaxed);
+
+        vmem::Result::Ok(base)
+    }
+
+    unsafe fn release(&self, base: usize, size: usize) {
+        let base = base - crate::mem::HHDM_OFFSET.load(core::sync::atomic::Ordering::Relaxed);
+        crate::mem::PHYS.free(base, size);
+    }
+}
 
 impl Allocator {
     pub unsafe fn init(&self, addr: *mut u8, size: usize) {
