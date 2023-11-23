@@ -37,15 +37,13 @@ cp -v limine/BOOTRISCV64.EFI .root/EFI/BOOT/
 qemu-system-riscv64-acpi \
     -machine virt,aclint=on,acpi=on,aia=aplic-imsic \
     -cpu rv64,svpbmt=on \
-    -smp 4 \
+    -smp 1 \
     -m 4G \
     -pflash CODE.fd \
     -device nvme,serial=deadbeff,drive=disk1 \
     -drive id=disk1,format=raw,if=none,file=fat:rw:./.root \
     -global virtio-mmio.force-legacy=false \
     -device ramfb \
-    -device virtio-gpu-device \
     -serial mon:stdio \
-    -bios rsbi \
     -d int \
     -D debug.log
