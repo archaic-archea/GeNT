@@ -18,7 +18,6 @@ SECTIONS
         PROVIDE(__text_end = .);
     }
 
-    .rodata                 : ALIGN(4k) { *(.rodata .rodata.*) }
     .eh_frame_hdr           : ALIGN(4k) { KEEP(*(.eh_frame_hdr)) }
     PROVIDE(__eh_frame = .);
     .eh_frame               : ALIGN(4k) { KEEP(*(.eh_frame)) }
@@ -37,17 +36,28 @@ SECTIONS
         PROVIDE(__tdata_end = .);
     }
 
-    .data.rel.ro            : ALIGN(4K) { *(.data.rel.ro*) }
-    .data                   : ALIGN(4K) { *(.data .data.*) }
     PROVIDE(__global_pointer = .);
+    .rodata                 : ALIGN(4k) {
+        PROVIDE(__data_start = .);
+        *(.rodata .rodata.*) 
+    }
+    .data                   : ALIGN(4K) { 
+        PROVIDE(__wdata_start = .);
+        *(.data .data.*) 
+    }
     .bss                    : ALIGN(4K) {
         *(.dynbss)
         *(.bss .bss.*)
         *(COMMON)
-        . += 0x100000;
+        PROVIDE(__data_end = .);
+        . += 0x10000;
         . = ALIGN(128);
         PROVIDE(__stack_top = .);
     }
 
     PROVIDE(__exec_end = .);
+
+    .drivers                : {
+        *(.drivers .drivers.*)
+    }
 }
